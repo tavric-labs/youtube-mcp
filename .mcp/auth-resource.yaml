@@ -1,0 +1,48 @@
+# Admin-applied sign-in wiring for this server on MCP Runtime. It is not part of
+# servers.yaml, which a tenant deploys: it defines the upstream identity provider
+# (Google) and registers this server's resource client, so a cluster
+# administrator applies it.
+#
+# Fill every <...> value, then preview and apply:
+#   mcp-runtime cluster mcp-auth resource apply --file .mcp/auth-resource.yaml \
+#     --kubeconfig <kubeconfig> --context <context> --dry-run
+# Deploy the server first, so MCP Auth already serves its resource. The connector's
+# client secret is never written here: add YOUTUBE_CLIENT_SECRET to the
+# mcp-auth-connector-secrets Secret before applying.
+#
+# Google side (see README "Operator setup"): a Google Cloud project with the
+# YouTube Data API v3 enabled, an OAuth consent screen, and a Web application
+# OAuth client whose authorized redirect URI is <MCP Auth issuer URL>/identity/callback.
+#
+# KNOWN GAP, offline access: this connector cannot ask Google for access_type=offline
+# or prompt=consent (mcp-auth builds the authorization URL from a fixed set of
+# parameters). Google then returns no refresh token, so the Google token mcp-auth
+# holds lasts about one hour and cannot be renewed; after that the person must sign
+# in again. See README "Google offline access" before relying on long-lived sessions.
+id: youtube
+resource_url: <public MCP URL, equal to auth.audience in servers.yaml, e.g. https://mcp.example.com/youtube/mcp>
+required_scopes: [tools:read, tools:write]
+resource_client:
+  client_id: youtube-mcp # YOUTUBE_MCP_CLIENT_ID
+  public_key_pem: |
+    <PEM public key for the private key in YOUTUBE_MCP_CLIENT_KEY>
+login:
+  label: Sign in with Google
+  downstream_token: upstream_session
+connector:
+  issuer: https://accounts.google.com
+  authorization_endpoint: https://accounts.google.com/o/oauth2/v2/auth
+  token_endpoint: https://oauth2.googleapis.com/token
+  jwks_uri: https://www.googleapis.com/oauth2/v3/certs
+  userinfo_endpoint: https://openidconnect.googleapis.com/v1/userinfo
+  client_id: <Google OAuth client ID>
+  client_secret_env: YOUTUBE_CLIENT_SECRET
+  token_endpoint_auth_method: client_secret_post
+  exchange_client_id: <Google OAuth client ID>
+  # openid identifies the person; youtube.force-ssl covers every call this server
+  # makes (channel, videos, upload, playlists, comments). It is a sensitive scope:
+  # see README "Consent screen and verification".
+  scopes: [openid, https://www.googleapis.com/auth/youtube.force-ssl]
+  identity_claims: [sub]
+  allowed_upstream_callback_uris:
+    - <MCP Auth issuer URL>/identity/callback

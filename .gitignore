@@ -1,0 +1,4 @@
+/youtube-mcp
+*.pem
+*.env
+/media/
