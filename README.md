@@ -53,18 +53,36 @@ the tool description; a client should still never treat it as an instruction.
 ### Uploading a video
 
 A video is too large for a tool argument, so it is staged over HTTP first, then uploaded by
-asset id:
+asset id. An agent can do all of it with the token its MCP client already holds:
+
+1. Call `youtube_create_upload_url` with the file's `content_type` and exact `size_bytes`.
+   The call carries your mcp-auth token and needs `tools:write`. It returns a single-use
+   URL and a ready `curl` command.
+2. `POST` the file to that URL. **No Authorization header is needed**: the random secret in
+   the URL is the credential. It is bound to you, to that content type and size, works
+   once and expires in 10 minutes. Only a hash of it is kept, in memory. The reply is
+   `{"asset_id":"3f2a...","bytes":...,"sha256":"..."}`.
+3. Call `youtube_upload_video` with that `asset_id`, a title, privacy and `made_for_kids`.
+   Repeat the identical call until it reports the video id.
 
 ```bash
-# 1. Stage the file for your own account (needs a token with tools:write).
+curl -X POST -H "Content-Type: video/mp4" --data-binary @video.mp4 "<url from step 1>"
+```
+
+The platform gateway demands a bearer on every path, so this route works only because
+`.mcp/servers.yaml` declares `/mcp/media/u/` under `auth.publicPaths`. The gateway then
+lets a `POST` there through without a token, caps the body and the time, strips
+credentials and audits the request with the secret redacted. It needs a platform release
+that supports `auth.publicPaths`. A URL that fails a header check (wrong Content-Type or
+length) is not used up; one that starts staging is.
+
+The older authenticated route still works if you can supply a token with `tools:write`:
+
+```bash
 curl -X POST "$SERVER/media" \
   -H "Authorization: Bearer $MCP_ACCESS_TOKEN" \
   -H "Content-Type: video/mp4" \
   --data-binary @video.mp4
-# -> {"asset_id":"3f2a...","bytes":...,"sha256":"..."}
-
-# 2. In your MCP client: youtube_upload_video with that asset_id, a title, privacy and
-#    made_for_kids. Repeat the identical call until it reports the video id.
 ```
 
 - `/media` is also served at `<MCP path>/media` (for example `/youtube/mcp/media`), because a
@@ -221,6 +239,16 @@ expire after 7 days even once this works.
 - The staging area is a single pod's disk: one replica, ephemeral without a volume, and a 2 GiB
   file needs that much free node storage.
 - Whether the gateway routes `/media` (or `<MCP path>/media`) to the pod is unverified.
+  Observed 2026-11-22 on the hosted deployment: `/youtube/mcp/media` answers 401
+  `missing_bearer_token` and `/youtube/media` returns 404. That 401 comes from the platform
+  gateway (`services/mcp-gateway/oauth.go`), which requires a bearer token on every request
+  under the server's path, so it shows the gateway fronts the path, not that a request
+  reaches this pod. It also means a no-header, one-time upload URL would be rejected by the
+  gateway before reaching the server unless the gateway gains a public-path exception.
+- Signed upload URLs are held in memory, so a restart or a second replica invalidates
+  pending URLs; run one replica (the manifest does). They also need the ingress to carry
+  the upload: Traefik's default entrypoint read timeout (60s in v3) bounds how long a
+  request body may take, which limits large files on slow links until it is raised.
 - Playlist/title duplicate checks look at the first 200 playlists only.
 - `videos.update` is read-modify-write without an ETag precondition, so a concurrent edit in
   YouTube Studio between the read and the write can be overwritten.

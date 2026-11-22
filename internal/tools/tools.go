@@ -42,6 +42,10 @@ type Server struct {
 	Tokens  TokenSource
 	// Media is the staging area for videos waiting to be uploaded.
 	Media *media.Store
+	// Tickets issues single-use signed upload URLs, and UploadBase is the public
+	// MCP URL they are built on. Both are needed for youtube_create_upload_url.
+	Tickets    *media.Tickets
+	UploadBase string
 	// UploadBudget is how long one youtube_upload_video call keeps sending
 	// before it returns its progress; the next identical call resumes. Zero
 	// means 40 seconds.
@@ -128,6 +132,11 @@ func failure(tool, subject string, err error) *mcp.CallToolResult {
 
 func result(text string, isError bool) *mcp.CallToolResult {
 	return &mcp.CallToolResult{IsError: isError, Content: []mcp.Content{&mcp.TextContent{Text: text}}}
+}
+
+// slogTool records a tool call that has no result text worth logging.
+func slogTool(tool, subject string, attrs ...any) {
+	slog.Info("tool call", append([]any{"tool", tool, "subject", subject, "outcome", "success"}, attrs...)...)
 }
 
 func ok(tool, subject, text string, attrs ...any) *mcp.CallToolResult {
@@ -294,6 +303,7 @@ func (s *Server) Register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: "youtube_get_channel", Description: "Return the signed-in person's own YouTube channel: title, handle and counts. Read only."}, s.GetChannel)
 	mcp.AddTool(server, &mcp.Tool{Name: "youtube_list_videos", Description: "List the signed-in person's uploaded videos, newest first, with privacy and view counts. Read only."}, s.ListVideos)
 	mcp.AddTool(server, &mcp.Tool{Name: "youtube_get_video", Description: "Return one video's details and processing state. Read only."}, s.GetVideo)
+	mcp.AddTool(server, &mcp.Tool{Name: "youtube_create_upload_url", Description: "Create a single-use, short-lived URL for staging one video file with a plain HTTP POST that needs no token. Give the content type and exact size; the reply has a curl command and, after the POST, an asset_id for youtube_upload_video. Changes nothing on YouTube."}, s.CreateUploadURL)
 	mcp.AddTool(server, &mcp.Tool{Name: "youtube_upload_video", Description: "Upload a video previously staged with POST /media to the signed-in person's channel, private by default. Resumable: repeat the same call until it reports the video id. Without confirm: true it only previews."}, s.UploadVideo)
 	mcp.AddTool(server, &mcp.Tool{Name: "youtube_update_video", Description: "Change a video's title, description, tags, category or privacy. Fields left out are kept. Without confirm: true it only previews."}, s.UpdateVideo)
 	mcp.AddTool(server, &mcp.Tool{Name: "youtube_list_playlists", Description: "List the signed-in person's playlists. Read only."}, s.ListPlaylists)
