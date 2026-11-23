@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/tavric-labs/youtube-mcp/internal/media"
 )
 
 func TestReadToolsCallYouTubeAsThePersonWhoSignedIn(t *testing.T) {
@@ -373,12 +375,62 @@ func TestEveryToolIsRegisteredWithAValidSchema(t *testing.T) {
 	for _, tool := range listed.Tools {
 		names[tool.Name] = true
 	}
-	for _, want := range []string{"youtube_get_channel", "youtube_list_videos", "youtube_get_video", "youtube_upload_video", "youtube_update_video", "youtube_list_playlists", "youtube_create_playlist", "youtube_add_playlist_item", "youtube_remove_playlist_item", "youtube_list_comments", "youtube_reply_to_comment", "youtube_moderate_comment", "youtube_delete_comment"} {
+	for _, want := range []string{"youtube_get_channel", "youtube_list_videos", "youtube_get_video", "youtube_create_upload_url", "youtube_upload_video", "youtube_update_video", "youtube_list_playlists", "youtube_create_playlist", "youtube_add_playlist_item", "youtube_remove_playlist_item", "youtube_list_comments", "youtube_reply_to_comment", "youtube_moderate_comment", "youtube_delete_comment"} {
 		if !names[want] {
 			t.Errorf("tool %s is not registered", want)
 		}
 	}
-	if len(names) != 13 {
-		t.Errorf("%d tools registered, want 13", len(names))
+	if len(names) != 14 {
+		t.Errorf("%d tools registered, want 14", len(names))
+	}
+}
+
+func newUploadURLHarness(t *testing.T) *harness {
+	h := newHarness(t)
+	h.server.Tickets = &media.Tickets{}
+	h.server.UploadBase = "https://mcp.example.com/youtube/mcp"
+	return h
+}
+
+func TestCreateUploadURLIssuesAOneTimeURLForTheCaller(t *testing.T) {
+	h := newUploadURLHarness(t)
+	r, _, err := h.server.CreateUploadURL(context.Background(), writer(), CreateUploadURLArgs{ContentType: "video/mp4", SizeBytes: 5 << 20})
+	if err != nil || r.IsError {
+		t.Fatalf("CreateUploadURL() = %q, %v", text(t, r), err)
+	}
+	body := text(t, r)
+	if !strings.Contains(body, "https://mcp.example.com/youtube/mcp/media/u/") || !strings.Contains(body, "--data-binary") || !strings.Contains(body, "video/mp4") {
+		t.Fatalf("reply does not carry a usable upload command: %s", body)
+	}
+	if strings.Contains(body, "-H \"Authorization") || strings.Contains(body, "Bearer") {
+		t.Fatalf("the curl command must not carry a bearer token: %s", body)
+	}
+	if h.tokens.seen() != "" {
+		t.Fatal("issuing a URL must not exchange the caller's token with Google")
+	}
+}
+
+func TestCreateUploadURLChecksScopeAndInput(t *testing.T) {
+	h := newUploadURLHarness(t)
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		req  *mcp.CallToolRequest
+		args CreateUploadURLArgs
+		want string
+	}{
+		{"read-only token", reader(), CreateUploadURLArgs{ContentType: "video/mp4", SizeBytes: 10}, WriteScope},
+		{"unauthenticated", request("", ""), CreateUploadURLArgs{ContentType: "video/mp4", SizeBytes: 10}, "authenticated"},
+		{"unsupported type", writer(), CreateUploadURLArgs{ContentType: "image/png", SizeBytes: 10}, "video/mp4"},
+		{"zero size", writer(), CreateUploadURLArgs{ContentType: "video/mp4", SizeBytes: 0}, "size_bytes"},
+		{"over the limit", writer(), CreateUploadURLArgs{ContentType: "video/mp4", SizeBytes: media.MaxBytes + 1}, "2 GiB"},
+	} {
+		r, _, err := h.server.CreateUploadURL(ctx, tc.req, tc.args)
+		if err != nil || !r.IsError || !strings.Contains(text(t, r), tc.want) {
+			t.Errorf("%s: got %q (error=%v), want an error mentioning %q", tc.name, text(t, r), r.IsError, tc.want)
+		}
+	}
+	if _, _, err := (&Server{}).CreateUploadURL(ctx, writer(), CreateUploadURLArgs{ContentType: "video/mp4", SizeBytes: 10}); err != nil {
+		t.Fatalf("an unconfigured server must answer with a tool error, not fail: %v", err)
 	}
 }

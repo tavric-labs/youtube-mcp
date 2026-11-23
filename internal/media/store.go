@@ -407,6 +407,12 @@ func (s *Store) Handler(w http.ResponseWriter, r *http.Request) {
 	_ = control.SetWriteDeadline(deadline)
 	mime := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
 	id, meta, err := s.Stage(claims.Subject, mime, http.MaxBytesReader(w, r.Body, s.limit()+1))
+	respondStaged(w, id, meta, err)
+}
+
+// respondStaged writes the outcome of Stage as the JSON reply both upload
+// handlers share.
+func respondStaged(w http.ResponseWriter, id string, meta Metadata, err error) {
 	switch {
 	case errors.Is(err, ErrBadMedia):
 		fail(w, http.StatusUnsupportedMediaType, err.Error())

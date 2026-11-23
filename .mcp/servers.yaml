@@ -4,7 +4,7 @@ servers:
       description: 'Manage your own YouTube channel as you, signed in through mcp-auth: read it, upload and update videos, organise playlists and moderate comments.'
       scope: org
       image: registry.mcpruntime.org/org/youtube
-      imageTag: 0.1.1
+      imageTag: 0.1.2
       route: /youtube/mcp
       ingressHost: mcp.mcpruntime.org
       publicPathPrefix: youtube
@@ -42,6 +42,10 @@ servers:
           description: Return one video's details and processing state.
           requiredTrust: low
           sideEffect: read
+        - name: youtube_create_upload_url
+          description: Create a single-use, short-lived URL for staging one video file with a plain HTTP POST that needs no token; changes nothing on YouTube.
+          requiredTrust: medium
+          sideEffect: write
         - name: youtube_upload_video
           description: Upload a video staged with POST /media to the signed-in person's channel, private by default; resumable and never uploads the same request twice; a dry run unless confirm is true.
           requiredTrust: high
@@ -85,6 +89,10 @@ servers:
       auth:
         issuerURL: https://auth.mcpruntime.org/mcp-auth
         audience: https://mcp.mcpruntime.org/youtube/mcp
+        publicPaths:
+            - pathPrefix: /mcp/media/u/
+              maxBodyBytes: 2147483648
+              maxDurationSeconds: 1800
       policy:
         mode: allow-list
         defaultDecision: deny
