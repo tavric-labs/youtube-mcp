@@ -90,7 +90,7 @@ servers:
         issuerURL: https://auth.mcpruntime.org/mcp-auth
         audience: https://mcp.mcpruntime.org/youtube/mcp
         publicPaths:
-            - pathPrefix: /mcp/media/u/
+            - pathPrefix: /youtube/mcp/media/u/
               maxBodyBytes: 2147483648
               maxDurationSeconds: 1800
       policy:
