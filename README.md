@@ -70,7 +70,9 @@ curl -X POST -H "Content-Type: video/mp4" --data-binary @video.mp4 "<url from st
 ```
 
 The platform gateway demands a bearer on every path, so this route works only because
-`.mcp/servers.yaml` declares `/mcp/media/u/` under `auth.publicPaths`. The gateway then
+`.mcp/servers.yaml` declares `/youtube/mcp/media/u/` under `auth.publicPaths`. The prefix is the path the
+server itself sees, so it must start with the server's `MCP_PATH` (`/youtube/mcp` on the
+hosted platform). The gateway then
 lets a `POST` there through without a token, caps the body and the time, strips
 credentials and audits the request with the secret redacted. It needs a platform release
 that supports `auth.publicPaths`. A URL that fails a header check (wrong Content-Type or
